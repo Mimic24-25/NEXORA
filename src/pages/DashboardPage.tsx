@@ -304,12 +304,24 @@ export function DashboardPage() {
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [avatarUploading, setAvatarUploading] = useState(false)
 
-  // Онлайн статус
+  // Онлайн статус: heartbeat обновляет last_seen, пока приложение открыто.
   useEffect(() => {
     if (!user) return
-    void updateOnlineStatus('online').catch(() => {})
-    return () => {
+
+    const markOffline = () => {
       void updateOnlineStatus('offline').catch(() => {})
+    }
+
+    void updateOnlineStatus('online').catch(() => {})
+    const heartbeatId = window.setInterval(() => {
+      void updateOnlineStatus('online').catch(() => {})
+    }, 25_000)
+
+    window.addEventListener('pagehide', markOffline)
+    return () => {
+      window.clearInterval(heartbeatId)
+      window.removeEventListener('pagehide', markOffline)
+      markOffline()
     }
   }, [user])
 
@@ -1386,7 +1398,8 @@ export function DashboardPage() {
 
   const handleSendVideoMessage = async (blob: Blob, mimeType: string) => {
     if (!selectedConversation || !user) return
-    const file = new File([blob], `circle_video_${Date.now()}.mp4`, { type: mimeType })
+    const extension = mimeType.toLowerCase().includes('mp4') ? 'mp4' : 'webm'
+    const file = new File([blob], `circle_video_${Date.now()}.${extension}`, { type: mimeType })
     try {
       const client = requireClient()
       const { data: { user: authUser } } = await client.auth.getUser()
@@ -1397,7 +1410,8 @@ export function DashboardPage() {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const storagePath = `${authUser.id}/${selectedConversation.id}/${Date.now()}_${safeName}`
 
-      await client.storage.from('nexora-media').upload(storagePath, file, { upsert: false })
+      const { error: uploadError } = await client.storage.from('nexora-media').upload(storagePath, file, { upsert: false })
+      if (uploadError) throw uploadError
 
       const { data: { session } } = await client.auth.getSession()
       if (!session) throw new Error('Требуется авторизация.')

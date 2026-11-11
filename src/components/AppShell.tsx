@@ -39,20 +39,12 @@ export function AppShell({ user, activeView, onViewChange, onLogout, children }:
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 p-4 lg:p-6">
         <aside className="hidden w-[280px] flex-col rounded-[28px] border border-white/10 bg-white/5 p-4 backdrop-blur-xl lg:flex">
-          <div className="mb-7 flex items-center justify-between">
+          <div className="mb-7 flex items-center justify-start">
             <div>
               <div className="text-xs uppercase tracking-[0.32em] text-cyan-300">NEXORA</div>
               <div className="mt-2 text-xl font-semibold text-white">Мессенджер</div>
             </div>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-slate-900/60 text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300"
-              aria-label={resolvedTheme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
-              title={resolvedTheme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
-            >
-              {resolvedTheme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
-            </button>
+
           </div>
 
           <div className="flex items-center gap-3 rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-3">

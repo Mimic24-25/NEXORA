@@ -73,6 +73,24 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
       .finally(() => setLoading(false))
   }, [conversationId])
 
+  // Обновляем список участников и их онлайн-статусы, пока открыта карточка группы.
+  useEffect(() => {
+    let active = true
+    const refreshPresence = async () => {
+      try {
+        const info = await loadGroupInfo(conversationId)
+        if (active) setGroupInfo(info as unknown as GroupInfo)
+      } catch {
+        // Не скрываем уже загруженную информацию из-за временной сетевой ошибки.
+      }
+    }
+    const intervalId = window.setInterval(() => void refreshPresence(), 15_000)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [conversationId])
+
   const myRole = groupInfo?.members.find((m) => m.userId === currentUserId)?.role
   const isOwner = myRole === 'owner'
   const isAdmin = myRole === 'owner' || myRole === 'admin'
@@ -165,6 +183,7 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
   }
 
   const { conversation, members, creator } = groupInfo
+  const onlineMembersCount = members.filter((member) => member.status === 'online').length
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -279,8 +298,14 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
         {/* Members */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-medium uppercase tracking-wider text-slate-400">
-              Участники ({members.length})
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                Участники ({members.length})
+              </div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {onlineMembersCount} в сети
+              </div>
             </div>
             {isAdmin ? (
               <button
@@ -309,7 +334,10 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
                     {member.role === 'owner' ? <ShieldCheck size={14} className="text-yellow-400" /> : null}
                     {member.role === 'admin' ? <Shield size={14} className="text-cyan-400" /> : null}
                   </div>
-                  <div className="text-xs text-slate-400">@{member.username}</div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <span className={`h-1.5 w-1.5 rounded-full ${member.status === 'online' ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                    @{member.username}
+                  </div>
                 </div>
                 {isAdmin && member.userId !== currentUserId ? (
                   <div className="flex gap-1">

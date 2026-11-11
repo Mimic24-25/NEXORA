@@ -54,3 +54,62 @@ img {
   background: rgba(148, 163, 184, 0.5);
   border-radius: 9999px;
 }
+
+
+/* NEXORA light theme overrides */
+html[data-theme='light'] body {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html[data-theme='light'] [class*="bg-slate-950"] {
+  background-color: #e2e8f0 !important;
+}
+
+html[data-theme='light'] [class*="bg-slate-900"] {
+  background-color: #f8fafc !important;
+}
+
+html[data-theme='light'] [class*="bg-slate-800"] {
+  background-color: #e2e8f0 !important;
+}
+
+html[data-theme='light'] [class*="bg-slate-700"] {
+  background-color: #cbd5e1 !important;
+}
+
+html[data-theme='light'] [class*="bg-white/5"],
+html[data-theme='light'] [class*="bg-white/10"] {
+  background-color: rgba(15, 23, 42, 0.045) !important;
+}
+
+html[data-theme='light'] [class*="border-white/"] {
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+html[data-theme='light'] [class~="text-white"],
+html[data-theme='light'] [class*="text-slate-50"],
+html[data-theme='light'] [class*="text-slate-100"],
+html[data-theme='light'] [class*="text-slate-200"] {
+  color: #0f172a !important;
+}
+
+html[data-theme='light'] [class*="text-slate-300"] {
+  color: #334155 !important;
+}
+
+html[data-theme='light'] [class*="text-slate-400"],
+html[data-theme='light'] [class*="text-slate-500"] {
+  color: #64748b !important;
+}
+
+html[data-theme='light'] input,
+html[data-theme='light'] textarea,
+html[data-theme='light'] select {
+  color: #0f172a;
+}
+
+html[data-theme='light'] input::placeholder,
+html[data-theme='light'] textarea::placeholder {
+  color: #64748b;
+}

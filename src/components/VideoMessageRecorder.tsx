@@ -14,6 +14,7 @@ export function VideoMessageRecorder({ onSend, onCancel }: VideoMessageRecorderP
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const sendOnStopRef = useRef(false)
   const timerRef = useRef<number | null>(null)
 
   const [phase, setPhase] = useState<'requesting' | 'recording' | 'preview' | 'error'>('requesting')
@@ -93,6 +94,15 @@ export function VideoMessageRecorder({ onSend, onCancel }: VideoMessageRecorderP
     recorder.onstop = () => {
       const actualType = recorder.mimeType || 'video/webm'
       const blob = new Blob(chunksRef.current, { type: actualType })
+
+      if (sendOnStopRef.current) {
+        sendOnStopRef.current = false
+        cleanup()
+        onSend(blob, actualType)
+        onCancel()
+        return
+      }
+
       setPreviewUrl(URL.createObjectURL(blob))
       setPhase('preview')
       cleanup()
@@ -131,6 +141,13 @@ export function VideoMessageRecorder({ onSend, onCancel }: VideoMessageRecorderP
       })
   }
 
+  const handleSendWhileRecording = () => {
+    const recorder = mediaRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') return
+    sendOnStopRef.current = true
+    stopRecording()
+  }
+
   const handleRetake = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewUrl(null)
@@ -158,6 +175,7 @@ export function VideoMessageRecorder({ onSend, onCancel }: VideoMessageRecorderP
   }
 
   const handleCancel = () => {
+    sendOnStopRef.current = false
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
     }
@@ -234,7 +252,17 @@ export function VideoMessageRecorder({ onSend, onCancel }: VideoMessageRecorderP
             {phase === 'requesting' ? (
               <p className="text-sm text-slate-300">Включаем камеру…</p>
             ) : (
-              <p className="text-sm text-slate-400">Запись видео…</p>
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-sm text-slate-400">Запись видео…</p>
+                <button
+                  type="button"
+                  onClick={handleSendWhileRecording}
+                  className="inline-flex items-center gap-2 rounded-full bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400"
+                >
+                  <Send size={16} />
+                  Отправить
+                </button>
+              </div>
             )}
           </div>
         )}
