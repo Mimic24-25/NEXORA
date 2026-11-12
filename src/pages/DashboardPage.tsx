@@ -53,6 +53,7 @@ import {
   forwardMessage,
   getBlockedUsers,
   getContacts,
+  matchPhoneContacts,
   getFileUrl,
   getMessageReadStatuses,
   getMessageReactions,
@@ -100,6 +101,7 @@ import { NotificationPanel } from '../components/NotificationPanel'
 import { VideoMessageRecorder } from '../components/VideoMessageRecorder'
 import type { AppView } from '../components/AppShell'
 import type { ChangeEvent } from 'react'
+import { readVCardFile } from '../services/phoneContactsService'
 
 const formatMessageTime = (date: string) =>
   new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' }).format(new Date(date))
@@ -220,6 +222,11 @@ export function DashboardPage() {
   // Контакты
   const [contacts, setContacts] = useState<ChatProfile[]>([])
   const [contactsLoading, setContactsLoading] = useState(false)
+  const phoneContactsFileRef = useRef<HTMLInputElement>(null)
+  const [phoneContactsLoading, setPhoneContactsLoading] = useState(false)
+  const [phoneContactsError, setPhoneContactsError] = useState<string | null>(null)
+  const [phoneContactsNotInNexora, setPhoneContactsNotInNexora] = useState<Array<{ name: string; phones: string[] }>>([])
+  const [phoneContactsMatches, setPhoneContactsMatches] = useState<ChatProfile[]>([])
 
   // Звонки
   const [activeCallInfo, setActiveCallInfo] = useState<{
@@ -574,6 +581,71 @@ export function DashboardPage() {
       setContacts((current) => current.filter((contact) => contact.id !== profileId))
     } catch (error) {
       setPeopleError(getErrorMessage(error))
+    }
+  }
+
+  const processPhoneContacts = async (items: Array<{ name: string; phones: string[] }>) => {
+    setPhoneContactsLoading(true)
+    setPhoneContactsError(null)
+    setPhoneContactsNotInNexora([])
+    setPhoneContactsMatches([])
+    try {
+      const validItems = items.map((item) => ({
+        name: item.name || 'Без имени',
+        phones: [...new Set(item.phones.filter((phone) => phone.replace(/[^0-9]/g, '').length >= 7))],
+      })).filter((item) => item.phones.length > 0)
+      if (!validItems.length) throw new Error('В выбранных контактах не найдено номеров телефонов.')
+      const matched = await matchPhoneContacts(validItems.flatMap((item) => item.phones))
+      const matchedDigits = new Set(matched.map((profile) => profile.matched_phone))
+      const matchedProfiles: ChatProfile[] = matched.map((profile) => ({
+        id: profile.id, name: profile.name, username: profile.username,
+        avatarUrl: profile.avatar_url, bio: '', status: 'offline', lastSeen: null,
+      }))
+      setPhoneContactsMatches(matchedProfiles)
+      setPhoneContactsNotInNexora(validItems.filter((item) =>
+        !item.phones.some((phone) => matchedDigits.has(phone.replace(/[^0-9]/g, '')))
+      ))
+    } catch (error) {
+      setPhoneContactsError(getErrorMessage(error))
+    } finally {
+      setPhoneContactsLoading(false)
+    }
+  }
+
+  const handleImportPhoneContacts = async () => {
+    const contactNavigator = navigator as Navigator & {
+      contacts?: { select: (properties: string[], options?: { multiple?: boolean }) => Promise<Array<{ name?: string[]; tel?: string[] }>> }
+    }
+    if (!contactNavigator.contacts?.select) {
+      phoneContactsFileRef.current?.click()
+      return
+    }
+    setPhoneContactsLoading(true)
+    setPhoneContactsError(null)
+    try {
+      const selected = await contactNavigator.contacts.select(['name', 'tel'], { multiple: true })
+      await processPhoneContacts(selected.map((contact) => ({
+        name: contact.name?.[0] ?? 'Без имени', phones: contact.tel ?? [],
+      })))
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setPhoneContactsError(getErrorMessage(error))
+      }
+      setPhoneContactsLoading(false)
+    }
+  }
+
+  const handleVCardImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setPhoneContactsLoading(true)
+    try {
+      const imported = await readVCardFile(file)
+      await processPhoneContacts(imported)
+    } catch (error) {
+      setPhoneContactsError(getErrorMessage(error))
+      setPhoneContactsLoading(false)
     }
   }
 
@@ -2279,15 +2351,39 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
         <div className="space-y-4 p-4 md:p-6">
           {/* Раздел «Контакты» */}
           <div className="rounded-[28px] border border-white/10 bg-slate-950/50 p-5">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-lg font-semibold text-white">Контакты</div>
-              <button
-                onClick={() => void reloadContacts()}
-                className="text-sm text-cyan-300 hover:text-cyan-200"
-              >
-                Обновить
-              </button>
+              <div className="flex gap-2">
+                <button type="button" disabled={phoneContactsLoading} onClick={() => void handleImportPhoneContacts()} className="rounded-xl bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">
+                  {phoneContactsLoading ? 'Импортируем…' : 'Импортировать контакты телефона'}
+                </button>
+                <button onClick={() => void reloadContacts()} className="text-sm text-cyan-300 hover:text-cyan-200">Обновить</button>
+              </div>
+              <input ref={phoneContactsFileRef} type="file" accept=".vcf,text/vcard" className="hidden" onChange={(event) => void handleVCardImport(event)} />
             </div>
+            <p className="mt-2 text-xs text-slate-400">Номера используются только для сверки и не сохраняются. Если браузер не поддерживает выбор контактов, выберите экспортированный файл .vcf.</p>
+            {phoneContactsError ? <div role="alert" className="mt-3 text-sm text-red-300">{phoneContactsError}</div> : null}
+            {phoneContactsMatches.length > 0 ? (
+              <div className="mt-4">
+                <div className="mb-2 text-sm font-medium text-emerald-300">Уже в NEXORA ({phoneContactsMatches.length})</div>
+                <div className="space-y-2">
+                  {phoneContactsMatches.map((profile) => (
+                    <div key={profile.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-3">
+                      <div><div className="text-sm text-white">{profile.name}</div><div className="text-xs text-slate-400">@{profile.username}</div></div>
+                      <button type="button" onClick={() => void handleAddContact(profile)} className="text-xs text-cyan-300">Добавить</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {phoneContactsNotInNexora.length > 0 ? (
+              <div className="mt-4">
+                <div className="mb-2 text-sm font-medium text-slate-300">Пока не зарегистрированы ({phoneContactsNotInNexora.length})</div>
+                <div className="space-y-1 text-sm text-slate-400">
+                  {phoneContactsNotInNexora.map((item, index) => <div key={index}>{item.name}</div>)}
+                </div>
+              </div>
+            ) : null}
             {contactsLoading ? (
               <div className="mt-3 text-sm text-slate-400">Загружаю…</div>
             ) : contacts.length === 0 ? (
