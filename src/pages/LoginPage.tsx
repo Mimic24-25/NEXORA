@@ -37,8 +37,8 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#0f172a_0%,#020817_36%,#020617_100%)] p-4">
       <div className="w-full max-w-6xl overflow-hidden rounded-[30px] border border-white/10 bg-slate-900/80 shadow-2xl shadow-slate-950/50 backdrop-blur-xl">
-        <div className="grid min-h-[760px] lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="relative overflow-hidden border-b border-white/10 bg-slate-950/60 p-10 lg:border-b-0 lg:border-r">
+        <div className="grid min-h-0 lg:min-h-[680px] lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="relative hidden overflow-hidden border-b border-white/10 bg-slate-950/60 p-10 lg:block lg:border-b-0 lg:border-r">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.24),transparent_30%)]" />
             <div className="relative z-10 flex h-full flex-col justify-between">
               <div>
