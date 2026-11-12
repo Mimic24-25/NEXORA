@@ -63,8 +63,8 @@ export function RegisterPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#0f172a_0%,#020817_36%,#020617_100%)] p-4">
       <div className="w-full max-w-5xl overflow-hidden rounded-[30px] border border-white/10 bg-slate-900/80 shadow-2xl shadow-slate-950/50 backdrop-blur-xl">
-        <div className="grid min-h-[820px] lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="border-b border-white/10 bg-slate-950/60 p-8 lg:border-b-0 lg:border-r">
+        <div className="grid min-h-0 lg:min-h-[700px] lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="hidden border-b border-white/10 bg-slate-950/60 p-8 lg:block lg:border-b-0 lg:border-r">
             <div className="text-xs uppercase tracking-[0.38em] text-cyan-300">NEXORA</div>
             <h1 className="mt-5 text-4xl font-semibold text-white">Создайте защищённый профиль.</h1>
             <p className="mt-4 text-base text-slate-300">
