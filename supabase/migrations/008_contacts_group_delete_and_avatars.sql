@@ -95,7 +95,8 @@ RETURNS TABLE (
   id uuid,
   name text,
   username text,
-  avatar_url text
+  avatar_url text,
+  matched_phone text
 )
 LANGUAGE sql
 STABLE
@@ -113,7 +114,8 @@ AS $$
              ))
            THEN p.avatar_url
            ELSE NULL
-         END AS avatar_url
+         END AS avatar_url,
+         regexp_replace(p.phone, '[^0-9]', '', 'g') AS matched_phone
   FROM public.profiles p
   JOIN auth.users u ON u.id = p.id
   WHERE auth.uid() IS NOT NULL
