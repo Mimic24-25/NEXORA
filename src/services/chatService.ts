@@ -128,7 +128,15 @@ const toChatProfile = (row: {
   username: row.username,
   avatarUrl: row.avatar_url,
   bio: row.bio ?? '',
-  status: row.status === 'online' ? 'online' : 'offline',
+  // Не доверяем сохранённому status без свежего heartbeat:
+  // вкладка может закрыться аварийно, и pagehide не всегда успевает отправить offline.
+  // Heartbeat приходит каждые 25 секунд; 75 секунд дают запас на задержки сети/фоновой вкладки.
+  status:
+    row.status === 'online' &&
+    !!row.last_seen &&
+    Date.now() - new Date(row.last_seen).getTime() <= 75_000
+      ? 'online'
+      : 'offline',
   lastSeen: row.last_seen,
 })
 
