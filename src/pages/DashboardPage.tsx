@@ -1667,8 +1667,8 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
   return (
     <AppShell activeView={activeView} onViewChange={setActiveView} onLogout={handleLogout} user={user}>
       {activeView === 'chats' ? (
-        <div className="grid h-full min-h-[calc(100vh-10rem)] grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)_300px]">
-          <aside className="border-b border-white/10 bg-slate-950/40 xl:border-b-0 xl:border-r">
+        <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_280px]">
+          <aside className="flex min-h-0 flex-col border-b border-white/10 bg-slate-950/40 lg:border-b-0 lg:border-r">
             <div className="flex items-center gap-3 border-b border-white/10 p-4">
               <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-slate-300">
                 <div className="flex items-center gap-2">
@@ -1706,7 +1706,7 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
               </button>
             </div>
 
-            <div className="max-h-[45vh] space-y-2 overflow-y-auto p-3 xl:max-h-[calc(100vh-13rem)]">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
               {chatsLoading ? <div className="p-4 text-center text-sm text-slate-400">Загружаем переписки…</div> : null}
               {chatsError ? (
                 <div role="alert" className="space-y-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
@@ -1796,11 +1796,12 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
             </div>
           </aside>
 
-          <main className="flex min-h-0 flex-col border-b border-white/10 bg-slate-900/60 xl:border-b-0 xl:border-r">
+          <main className={`min-h-0 min-w-0 flex-col border-b border-white/10 bg-slate-900/60 lg:flex lg:border-b-0 lg:border-r ${selectedConversationId ? 'flex' : 'hidden'}`}>
             {selectedConversation ? (
               <>
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
-                  <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-3 sm:px-4 sm:py-4">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button type="button" onClick={() => setSelectedConversationId(null)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-300 lg:hidden" aria-label="Назад к чатам">←</button>
                     {selectedPeer?.avatarUrl ? (
                       <img src={selectedPeer.avatarUrl} alt="" className="h-11 w-11 rounded-full object-cover" />
                     ) : (
@@ -2287,7 +2288,7 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
             )}
           </main>
 
-          <aside className="space-y-4 bg-slate-950/40 p-4">
+          <aside className="hidden min-h-0 space-y-4 overflow-y-auto bg-slate-950/40 p-4 xl:block">
             {showGroupPanel && selectedConversation?.type === 'group' ? (
               <div className="h-[calc(100vh-10rem)] overflow-hidden rounded-3xl border border-white/10 bg-white/5">
                 <GroupProfilePanel
