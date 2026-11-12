@@ -103,7 +103,7 @@ export function AppShell({ user, activeView, onViewChange, onLogout, children }:
             </div>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
 
           <nav aria-label="Основная навигация" className="grid shrink-0 grid-cols-5 border-t border-white/10 bg-slate-950/95 px-1 pb-[max(env(safe-area-inset-bottom),6px)] pt-1 lg:hidden">
             {navItems.map(({ key, label, icon: Icon }) => (
