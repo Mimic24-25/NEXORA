@@ -114,6 +114,9 @@ const getErrorMessage = (error: unknown) => {
   if (/nexora_(get_profiles|latest_messages|search_profiles|create_direct_conversation)/i.test(message)) {
     return 'Не найдены функции чатов в Supabase. Выполните миграцию 003_chat_profiles_and_message_deletion.sql в SQL Editor.'
   }
+  if (/nexora_(delete_group|match_phone_contacts|update_group_settings)/i.test(message)) {
+    return 'Функции новых возможностей ещё не установлены в Supabase. Выполните миграцию 008_contacts_group_delete_and_avatars.sql в SQL Editor.'
+  }
   if (/row-level security|permission denied|not allowed/i.test(message)) {
     return 'Supabase отклонил действие по правилам доступа. Проверьте применение миграций и членство в переписке.'
   }
