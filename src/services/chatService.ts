@@ -668,6 +668,33 @@ export const removeGroupMember = async (
   if (error) throw error
 }
 
+
+/** Permanently delete a group for all participants (owner only, enforced by RPC). */
+export const deleteGroupConversation = async (conversationId: string): Promise<void> => {
+  const { error } = await requireClient().rpc('nexora_delete_group', {
+    p_conversation_id: conversationId,
+  })
+  if (error) throw error
+}
+
+/** Match explicitly imported phone numbers against registered, confirmed NEXORA accounts. */
+export interface PhoneContactMatch {
+  id: string
+  name: string
+  username: string
+  avatar_url: string | null
+}
+
+export const matchPhoneContacts = async (phoneNumbers: string[]): Promise<PhoneContactMatch[]> => {
+  const normalized = [...new Set(phoneNumbers.map((value) => value.replace(/[^0-9]/g, '')).filter((value) => value.length >= 7))]
+  if (!normalized.length) return []
+  const { data, error } = await requireClient().rpc('nexora_match_phone_contacts', {
+    p_phone_numbers: normalized,
+  })
+  if (error) throw error
+  return (data ?? []) as PhoneContactMatch[]
+}
+
 export const leaveGroup = async (conversationId: string): Promise<void> => {
   const { error } = await requireClient().rpc('nexora_leave_group', {
     p_conversation_id: conversationId,
