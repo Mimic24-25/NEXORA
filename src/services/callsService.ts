@@ -36,6 +36,8 @@ interface InvitePayload {
   mode: CallMode
   fromUserId: string
   fromName: string
+  groupCall?: boolean
+  memberIds?: string[]
 }
 
 const RING_TIMEOUT_MS = 35_000
@@ -564,10 +566,9 @@ export class GroupCallSession {
   private readonly pendingIce = new Map<string, RTCIceCandidateInit[]>()
   private finished = false
   private channelReady = false
-  private joined = false
   private readonly pending: Array<{ event: string; payload: Record<string, unknown> }> = []
 
-  constructor(options: GroupCallOptions, callId = crypto.randomUUID()) {
+  constructor(options: GroupCallOptions, callId: string = crypto.randomUUID()) {
     this.options = options
     this.callId = callId
   }
@@ -643,7 +644,6 @@ export class GroupCallSession {
       this.options.mode === 'video' ? { audio: true, video: true } : { audio: true },
     )
     this.options.onLocalStream(this.localStream)
-    this.joined = true
     this.options.onStatus('connecting')
     this.send('nexora-group-hello', { userId: this.options.userId, name: this.options.userName })
 
