@@ -939,6 +939,7 @@ export function DashboardPage() {
   const handleToggleMic = () => {
     setCallMuted((muted) => {
       activeCallRef.current?.setMicEnabled(muted)
+      groupCallRef.current?.setMicEnabled(muted)
       return !muted
     })
   }
