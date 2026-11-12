@@ -83,7 +83,6 @@ import {
   clearConversationHistory,
 } from '../services/conversationService'
 import {
-  markAllNotificationsRead,
   getUnreadNotificationCount,
   loadUnreadCounts,
   subscribeToNotifications,
@@ -1363,10 +1362,11 @@ export function DashboardPage() {
 
   // --- Уведомления ------------------------------------------------------------
 
-  const handleOpenNotifications = async () => {
+  const handleOpenNotifications = () => {
+    // Не помечаем всё прочитанным при простом открытии панели.
+    // Уведомление считается прочитанным только после нажатия на него
+    // либо явной команды «Прочитать все» внутри панели.
     setShowNotificationPanel(true)
-    await markAllNotificationsRead().catch(() => {})
-    setUnreadNotificationCount(0)
   }
 
   // --- Настройки уведомлений --------------------------------------------------
