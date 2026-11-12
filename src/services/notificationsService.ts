@@ -134,46 +134,42 @@ export const loadUnreadCounts = async (conversationIds: string[]): Promise<Map<s
 /**
  * Подписка на новые уведомления через Realtime.
  */
-export const subscribeToNotifications = (
+export const subscribeToNotifications = async (
   handlers: {
     onInsert: (notification: NotificationItem) => void
     onDelete?: (notificationId: string) => void
   },
-): (() => void) => {
+): Promise<() => void> => {
   const client = requireClient()
+  const { data: { user }, error } = await client.auth.getUser()
+  if (error) throw error
+  if (!user) return () => {}
 
   const channel = client
-    .channel('nexora-notifications')
+    .channel(`nexora-notifications-${user.id}`)
     .on(
       'postgres_changes',
       {
         event: 'INSERT',
         schema: 'public',
         table: 'notifications',
-        filter: `user_id=eq.${requireClient().auth.getUser().then(r => r.data?.user?.id)}`,
+        filter: `user_id=eq.${user.id}`,
       },
       (payload) => {
+        const row = payload.new as {
+          id: string; user_id: string; kind: string; title: string;
+          body: string; payload: Record<string, unknown>; created_at: string;
+        }
+        if (row.user_id !== user.id) return
         handlers.onInsert({
-          id: (payload.new as { id: string }).id,
-          kind: (payload.new as { kind: string }).kind as NotificationItem['kind'],
-          title: (payload.new as { title: string }).title,
-          body: (payload.new as { body: string }).body,
-          payload: (payload.new as { payload: Record<string, unknown> }).payload ?? {},
+          id: row.id,
+          kind: row.kind as NotificationItem['kind'],
+          title: row.title,
+          body: row.body,
+          payload: row.payload ?? {},
           isRead: false,
-          createdAt: (payload.new as { created_at: string }).created_at,
+          createdAt: row.created_at,
         })
-      },
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: 'DELETE',
-        schema: 'public',
-        table: 'notifications',
-        filter: `user_id=eq.${requireClient().auth.getUser().then(r => r.data?.user?.id)}`,
-      },
-      (payload) => {
-        handlers.onDelete?.((payload.old as { id: string }).id)
       },
     )
     .subscribe()
