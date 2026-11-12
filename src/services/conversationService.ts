@@ -124,7 +124,28 @@ export const uploadGroupAvatar = async (conversationId: string, file: File): Pro
 }
 
 /** Полностью убрать аватар группы из карточки группы. */
-export const deleteGroupAvatar = async (conversationId: string): Promise<void> => {
+export const deleteGroupAvatar = async (conversationId: string, avatarUrl: string | null): Promise<void> => {
+  const client = requireClient()
+  const { data: { user } } = await client.auth.getUser()
+  if (!user) throw new Error('Требуется авторизация.')
+
+  // Удаляем сам объект, если его загрузил текущий пользователь.
+  if (avatarUrl) {
+    try {
+      const parsed = new URL(avatarUrl)
+      const marker = '/object/sign/nexora-media/'
+      const index = parsed.pathname.indexOf(marker)
+      if (index >= 0) {
+        const storagePath = decodeURIComponent(parsed.pathname.slice(index + marker.length))
+        if (storagePath.split('/')[0] === user.id) {
+          const { error } = await client.storage.from('nexora-media').remove([storagePath])
+          if (error) throw error
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message !== 'Invalid URL') throw error
+    }
+  }
   await updateGroupSettings(conversationId, { clearAvatar: true })
 }
 
