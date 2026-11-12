@@ -30,10 +30,23 @@ export function NotificationPanel({ onClose, onSelectConversation }: Notificatio
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    void loadNotifications()
-      .then(setNotifications)
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    let active = true
+    const refresh = async () => {
+      try {
+        const items = await loadNotifications()
+        if (active) setNotifications(items)
+      } catch {
+        // Сохраняем последний успешный список при временной ошибке сети.
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    void refresh()
+    const intervalId = window.setInterval(() => void refresh(), 8_000)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
   }, [])
 
   useEffect(() => {
