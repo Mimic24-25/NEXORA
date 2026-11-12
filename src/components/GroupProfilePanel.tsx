@@ -165,7 +165,7 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
   const handleDeleteGroupAvatar = async () => {
     setAvatarBusy(true)
     try {
-      await deleteGroupAvatar(conversationId)
+      await deleteGroupAvatar(conversationId, groupInfo?.conversation.avatarUrl ?? null)
       const info = await loadGroupInfo(conversationId)
       setGroupInfo(info as unknown as GroupInfo)
       onGroupUpdated?.()
