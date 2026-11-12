@@ -736,10 +736,20 @@ export const updateOnlineStatus = async (
   status: 'online' | 'offline',
   lastSeen?: string,
 ): Promise<void> => {
-  const { error } = await requireClient().rpc('nexora_update_status', {
-    p_status: status,
-    p_last_seen: lastSeen ?? null,
-  })
+  const client = requireClient()
+  const { data: { user }, error: authError } = await client.auth.getUser()
+  if (authError) throw authError
+  if (!user) return
+
+  // Обновляем собственный профиль напрямую: RPC nexora_update_status
+  // отсутствует в установленных миграциях, из-за чего heartbeat молча падал.
+  const { error } = await client
+    .from('profiles')
+    .update({
+      status,
+      last_seen: lastSeen ?? new Date().toISOString(),
+    })
+    .eq('id', user.id)
   if (error) throw error
 }
 
