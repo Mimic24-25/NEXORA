@@ -86,6 +86,8 @@ import {
   markAllNotificationsRead,
   getUnreadNotificationCount,
   loadUnreadCounts,
+  subscribeToNotifications,
+  playNotificationSound,
 } from '../services/notificationsService'
 import {
   loadUserSettings,
@@ -1384,7 +1386,13 @@ export function DashboardPage() {
   const saveNotificationSettings = async () => {
     setSettingsLoading(true)
     try {
-      await updateUserSettings(notificationSettings)
+      const nextSettings = { ...notificationSettings }
+      if (nextSettings.pushEnabled && 'Notification' in window && Notification.permission === 'default') {
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted') nextSettings.pushEnabled = false
+      }
+      await updateUserSettings(nextSettings)
+      setNotificationSettings(nextSettings)
       setSettingsSaved(true)
       setTimeout(() => setSettingsSaved(false), 2000)
     } catch {
@@ -1508,11 +1516,48 @@ export function DashboardPage() {
 
   // Эффекты загрузки данных (после определений колбэков)
   useEffect(() => {
-    if (conversations.length > 0) {
-      void loadChatSettings()
-      void loadUnreadData()
+    if (conversations.length > 0) void loadChatSettings()
+  }, [conversations.length, loadChatSettings])
+
+  // Обновляем счётчик даже если список чатов пуст, а новые уведомления
+  // показываем сразу, не дожидаясь открытия панели.
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    const refreshCount = async () => {
+      const count = await getUnreadNotificationCount().catch(() => 0)
+      if (active) setUnreadNotificationCount(count)
     }
-  }, [conversations.length, loadChatSettings, loadUnreadData])
+    void refreshCount()
+    const pollId = window.setInterval(() => void refreshCount(), 12_000)
+    let unsubscribe: (() => void) | undefined
+    void subscribeToNotifications({
+      onInsert: (notification) => {
+        setUnreadNotificationCount((count) => count + 1)
+        if (notificationSettings.soundEnabled) playNotificationSound()
+        if (
+          notificationSettings.pushEnabled &&
+          'Notification' in window &&
+          Notification.permission === 'granted' &&
+          document.visibilityState !== 'visible'
+        ) {
+          new Notification(notification.title, {
+            body: notification.body,
+            icon: '/NEXORA/icons/icon-192x192.svg',
+            tag: notification.id,
+          })
+        }
+      },
+    }).then((cleanup) => {
+      if (active) unsubscribe = cleanup
+      else cleanup()
+    }).catch(() => {})
+    return () => {
+      active = false
+      window.clearInterval(pollId)
+      unsubscribe?.()
+    }
+  }, [user, notificationSettings.soundEnabled, notificationSettings.pushEnabled])
 
   useEffect(() => {
     if (activeView === 'settings') {
@@ -1839,7 +1884,21 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
                                 </div>
                               ) : message.type === 'video' ? (
                                 <div>
-                                  <video src={message.content} controls className="mb-2 max-w-full rounded-xl" />
+                                  {message.content.includes('circle_video_') ? (
+                                    <div className="mb-2 flex justify-start">
+                                      <div className="relative h-56 w-56 max-w-full overflow-hidden rounded-full border-2 border-cyan-400/40 bg-slate-950 shadow-lg shadow-cyan-500/10">
+                                        <video
+                                          src={message.content}
+                                          controls
+                                          playsInline
+                                          preload="metadata"
+                                          className="h-full w-full rounded-full object-cover"
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <video src={message.content} controls playsInline className="mb-2 max-w-full rounded-xl" />
+                                  )}
                                   <div className="text-xs opacity-70">{formatMessageTime(message.createdAt)}</div>
                                 </div>
                               ) : message.type === 'voice' ? (
