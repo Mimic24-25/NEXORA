@@ -692,6 +692,10 @@ export class GroupCallSession {
     this.finish('ended')
   }
 
+  fail(): void {
+    this.finish('failed')
+  }
+
   private send(event: string, payload: Record<string, unknown>): void {
     if (!this.channel || !this.channelReady) {
       this.pending.push({ event, payload })
@@ -785,7 +789,7 @@ export class GroupCallSession {
 
 export const startOutgoingGroupCall = (options: Omit<GroupCallOptions, 'direction'>): GroupCallSession => {
   const session = new GroupCallSession({ ...options, direction: 'outgoing' })
-  void session.start().catch(() => options.onStatus('failed'))
+  void session.start().catch(() => session.fail())
   return session
 }
 
@@ -800,6 +804,6 @@ export const acceptIncomingGroupCall = (
     memberIds: info.memberIds ?? [userId, info.fromUserId],
     mode: info.mode, direction: 'incoming', ...handlers,
   }, info.callId)
-  void session.start().catch(() => handlers.onStatus('failed'))
+  void session.start().catch(() => session.fail())
   return session
 }
