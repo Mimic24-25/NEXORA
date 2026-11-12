@@ -851,7 +851,18 @@ export function DashboardPage() {
         conversationId: selectedConversation.id,
         memberIds: selectedConversation.memberIds,
         mode,
-        onStatus: (status) => setActiveCallInfo((current) => current ? { ...current, status } : current),
+        onStatus: (status) => {
+          setActiveCallInfo((current) => current ? { ...current, status } : current)
+          if (['ended', 'declined', 'missed', 'busy', 'failed'].includes(status)) {
+            window.setTimeout(() => {
+              groupCallRef.current?.destroy()
+              groupCallRef.current = null
+              setActiveCallInfo(null)
+              setLocalStream(null)
+              setGroupRemoteStreams([])
+            }, 2200)
+          }
+        },
         onLocalStream: setLocalStream,
         onRemoteStreams: setGroupRemoteStreams,
       })
@@ -881,7 +892,18 @@ export function DashboardPage() {
     setIncomingCall(null)
     if (info.groupCall) {
       const session = acceptIncomingGroupCall(info, user.id, user.name, {
-        onStatus: (status) => setActiveCallInfo((current) => current ? { ...current, status } : current),
+        onStatus: (status) => {
+          setActiveCallInfo((current) => current ? { ...current, status } : current)
+          if (['ended', 'declined', 'missed', 'busy', 'failed'].includes(status)) {
+            window.setTimeout(() => {
+              groupCallRef.current?.destroy()
+              groupCallRef.current = null
+              setActiveCallInfo(null)
+              setLocalStream(null)
+              setGroupRemoteStreams([])
+            }, 2200)
+          }
+        },
         onLocalStream: setLocalStream,
         onRemoteStreams: setGroupRemoteStreams,
       })
