@@ -561,6 +561,7 @@ export class GroupCallSession {
   private localStream: MediaStream | null = null
   private readonly peers = new Map<string, RTCPeerConnection>()
   private readonly remoteStreams = new Map<string, MediaStream>()
+  private readonly pendingIce = new Map<string, RTCIceCandidateInit[]>()
   private finished = false
   private channelReady = false
   private joined = false
@@ -591,6 +592,7 @@ export class GroupCallSession {
         const pc = await this.ensurePeer(data.from)
         if (pc.signalingState !== 'stable') return
         await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp })
+        await this.flushPeerIce(data.from, pc)
         const answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
         this.send('nexora-group-answer', { from: this.options.userId, to: data.from, sdp: answer.sdp })
@@ -599,17 +601,20 @@ export class GroupCallSession {
         const data = message.payload as { from?: string; to?: string; sdp?: string }
         if (!data.from || data.to !== this.options.userId || !data.sdp) return
         const pc = this.peers.get(data.from)
-        if (pc?.signalingState === 'have-local-offer') await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp })
+        if (pc?.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp })
+          await this.flushPeerIce(data.from, pc)
+        }
       })
       .on('broadcast', { event: 'nexora-group-ice' }, async (message) => {
         const data = message.payload as { from?: string; to?: string; candidate?: RTCIceCandidateInit }
         if (!data.from || data.to !== this.options.userId || !data.candidate) return
         const pc = this.peers.get(data.from)
         if (pc?.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {})
-        else if (pc) {
-          const queued = (pc as RTCPeerConnection & { __nexoraIce?: RTCIceCandidateInit[] }).__nexoraIce ?? []
+        else {
+          const queued = this.pendingIce.get(data.from) ?? []
           queued.push(data.candidate)
-          ;(pc as RTCPeerConnection & { __nexoraIce?: RTCIceCandidateInit[] }).__nexoraIce = queued
+          this.pendingIce.set(data.from, queued)
         }
       })
       .on('broadcast', { event: 'nexora-group-left' }, (message) => {
@@ -725,6 +730,12 @@ export class GroupCallSession {
     return pc
   }
 
+  private async flushPeerIce(userId: string, pc: RTCPeerConnection): Promise<void> {
+    const queued = this.pendingIce.get(userId) ?? []
+    this.pendingIce.delete(userId)
+    for (const candidate of queued) await pc.addIceCandidate(candidate).catch(() => {})
+  }
+
   private async createOffer(userId: string): Promise<void> {
     if (this.finished || this.peers.has(userId)) return
     const pc = await this.ensurePeer(userId)
@@ -738,6 +749,7 @@ export class GroupCallSession {
     this.peers.delete(userId)
     this.remoteStreams.get(userId)?.getTracks().forEach((track) => track.stop())
     this.remoteStreams.delete(userId)
+    this.pendingIce.delete(userId)
     this.emitRemoteStreams()
   }
 
@@ -760,6 +772,7 @@ export class GroupCallSession {
     this.options.onStatus(status)
     this.localStream?.getTracks().forEach((track) => track.stop())
     this.localStream = null
+    this.pendingIce.clear()
     for (const id of [...this.peers.keys()]) this.removePeer(id)
     if (this.channel) void requireClient().removeChannel(this.channel)
     this.channel = null
