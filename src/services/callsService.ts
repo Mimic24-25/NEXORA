@@ -26,6 +26,8 @@ export interface IncomingCallInfo {
   mode: CallMode
   fromUserId: string
   fromName: string
+  groupCall?: boolean
+  memberIds?: string[]
 }
 
 interface InvitePayload {
@@ -77,6 +79,8 @@ export const subscribeIncomingCalls = (
         mode: data.mode === 'video' ? 'video' : 'audio',
         fromUserId: data.fromUserId,
         fromName: data.fromName,
+        groupCall: data.groupCall === true,
+        memberIds: Array.isArray(data.memberIds) ? data.memberIds.filter((id): id is string => typeof id === 'string') : undefined,
       })
     })
     .on('broadcast', { event: 'nexora-call-cancel' }, (payload) => {
@@ -531,4 +535,258 @@ export const loadCallHistory = async (conversationIds: string[]): Promise<CallHi
     endedAt: row.ended_at,
     createdBy: row.created_by,
   }))
+}
+
+
+// ----------------------------------------------------------------------------
+// Групповые звонки: mesh WebRTC (отдельное P2P-соединение с каждым участником)
+// ----------------------------------------------------------------------------
+
+interface GroupCallOptions {
+  userId: string
+  userName: string
+  conversationId: string
+  memberIds: string[]
+  mode: CallMode
+  direction: 'outgoing' | 'incoming'
+  onStatus: (status: CallStatus) => void
+  onLocalStream: (stream: MediaStream) => void
+  onRemoteStreams: (streams: Array<{ userId: string; stream: MediaStream }>) => void
+}
+
+export class GroupCallSession {
+  readonly callId: string
+  private readonly options: GroupCallOptions
+  private channel: RealtimeChannel | null = null
+  private localStream: MediaStream | null = null
+  private readonly peers = new Map<string, RTCPeerConnection>()
+  private readonly remoteStreams = new Map<string, MediaStream>()
+  private finished = false
+  private channelReady = false
+  private joined = false
+  private readonly pending: Array<{ event: string; payload: Record<string, unknown> }> = []
+
+  constructor(options: GroupCallOptions, callId = crypto.randomUUID()) {
+    this.options = options
+    this.callId = callId
+  }
+
+  async start(): Promise<void> {
+    const client = requireClient()
+    this.channel = client.channel(callChannelName(this.callId))
+      .on('broadcast', { event: 'nexora-group-hello' }, (message) => {
+        const data = message.payload as { userId?: string; name?: string }
+        if (!data.userId || data.userId === this.options.userId) return
+        this.send('nexora-group-present', { userId: this.options.userId, name: this.options.userName, to: data.userId })
+        if (this.options.userId.localeCompare(data.userId) < 0) void this.createOffer(data.userId)
+      })
+      .on('broadcast', { event: 'nexora-group-present' }, (message) => {
+        const data = message.payload as { userId?: string; to?: string }
+        if (!data.userId || data.userId === this.options.userId || (data.to && data.to !== this.options.userId)) return
+        if (this.options.userId.localeCompare(data.userId) < 0) void this.createOffer(data.userId)
+      })
+      .on('broadcast', { event: 'nexora-group-offer' }, async (message) => {
+        const data = message.payload as { from?: string; to?: string; sdp?: string }
+        if (!data.from || data.to !== this.options.userId || !data.sdp || this.finished) return
+        const pc = await this.ensurePeer(data.from)
+        if (pc.signalingState !== 'stable') return
+        await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp })
+        const answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
+        this.send('nexora-group-answer', { from: this.options.userId, to: data.from, sdp: answer.sdp })
+      })
+      .on('broadcast', { event: 'nexora-group-answer' }, async (message) => {
+        const data = message.payload as { from?: string; to?: string; sdp?: string }
+        if (!data.from || data.to !== this.options.userId || !data.sdp) return
+        const pc = this.peers.get(data.from)
+        if (pc?.signalingState === 'have-local-offer') await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp })
+      })
+      .on('broadcast', { event: 'nexora-group-ice' }, async (message) => {
+        const data = message.payload as { from?: string; to?: string; candidate?: RTCIceCandidateInit }
+        if (!data.from || data.to !== this.options.userId || !data.candidate) return
+        const pc = this.peers.get(data.from)
+        if (pc?.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {})
+        else if (pc) {
+          const queued = (pc as RTCPeerConnection & { __nexoraIce?: RTCIceCandidateInit[] }).__nexoraIce ?? []
+          queued.push(data.candidate)
+          ;(pc as RTCPeerConnection & { __nexoraIce?: RTCIceCandidateInit[] }).__nexoraIce = queued
+        }
+      })
+      .on('broadcast', { event: 'nexora-group-left' }, (message) => {
+        const data = message.payload as { userId?: string }
+        if (data.userId) this.removePeer(data.userId)
+      })
+      .on('broadcast', { event: 'nexora-group-end' }, () => this.finish('ended'))
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          this.channelReady = true
+          this.flush()
+        }
+      })
+
+    await new Promise<void>((resolve, reject) => {
+      const started = Date.now()
+      const check = () => {
+        if (this.channelReady) resolve()
+        else if (Date.now() - started > 12_000) reject(new Error('Не удалось подключиться к каналу группового звонка.'))
+        else window.setTimeout(check, 100)
+      }
+      check()
+    })
+
+    this.localStream = await navigator.mediaDevices.getUserMedia(
+      this.options.mode === 'video' ? { audio: true, video: true } : { audio: true },
+    )
+    this.options.onLocalStream(this.localStream)
+    this.joined = true
+    this.options.onStatus('connecting')
+    this.send('nexora-group-hello', { userId: this.options.userId, name: this.options.userName })
+
+    if (this.options.direction === 'outgoing') {
+      const inboxes = this.options.memberIds.filter((id) => id !== this.options.userId)
+      await Promise.all(inboxes.map(async (userId) => {
+        const inbox = client.channel(inboxChannelName(userId))
+        await new Promise<void>((resolve) => inbox.subscribe((status) => {
+          if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') resolve()
+        }))
+        await inbox.send({
+          type: 'broadcast',
+          event: 'nexora-call-invite',
+          payload: {
+            callId: this.callId,
+            conversationId: this.options.conversationId,
+            mode: this.options.mode,
+            fromUserId: this.options.userId,
+            fromName: this.options.userName,
+            groupCall: true,
+            memberIds: this.options.memberIds,
+          },
+        })
+        window.setTimeout(() => { void client.removeChannel(inbox) }, 1200)
+      }))
+    }
+    void this.persistSession()
+  }
+
+  setMicEnabled(enabled: boolean): void {
+    this.localStream?.getAudioTracks().forEach((track) => { track.enabled = enabled })
+  }
+
+  setCameraEnabled(enabled: boolean): void {
+    this.localStream?.getVideoTracks().forEach((track) => { track.enabled = enabled })
+  }
+
+  hangup(): void {
+    if (this.finished) return
+    if (this.options.direction === 'outgoing') this.send('nexora-group-end', { userId: this.options.userId })
+    else this.send('nexora-group-left', { userId: this.options.userId })
+    this.finish('ended')
+  }
+
+  destroy(): void {
+    this.finish('ended')
+  }
+
+  private send(event: string, payload: Record<string, unknown>): void {
+    if (!this.channel || !this.channelReady) {
+      this.pending.push({ event, payload })
+      return
+    }
+    void this.channel.send({ type: 'broadcast', event, payload })
+  }
+
+  private flush(): void {
+    if (!this.channel || !this.channelReady) return
+    for (const item of this.pending.splice(0)) void this.channel.send({ type: 'broadcast', event: item.event, payload: item.payload })
+  }
+
+  private async ensurePeer(userId: string): Promise<RTCPeerConnection> {
+    const existing = this.peers.get(userId)
+    if (existing) return existing
+    if (!this.localStream) throw new Error('Микрофон ещё не готов.')
+    const pc = new RTCPeerConnection(ICE_CONFIGURATION) as RTCPeerConnection & { __nexoraIce?: RTCIceCandidateInit[] }
+    this.peers.set(userId, pc)
+    this.localStream.getTracks().forEach((track) => pc.addTrack(track, this.localStream as MediaStream))
+    pc.onicecandidate = (event) => {
+      if (event.candidate) this.send('nexora-group-ice', {
+        from: this.options.userId, to: userId, candidate: event.candidate.toJSON(),
+      })
+    }
+    pc.ontrack = (event) => {
+      const stream = this.remoteStreams.get(userId) ?? new MediaStream()
+      if (!stream.getTracks().some((track) => track.id === event.track.id)) stream.addTrack(event.track)
+      this.remoteStreams.set(userId, stream)
+      this.emitRemoteStreams()
+    }
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') this.options.onStatus('connected')
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.removePeer(userId)
+    }
+    return pc
+  }
+
+  private async createOffer(userId: string): Promise<void> {
+    if (this.finished || this.peers.has(userId)) return
+    const pc = await this.ensurePeer(userId)
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    this.send('nexora-group-offer', { from: this.options.userId, to: userId, sdp: offer.sdp })
+  }
+
+  private removePeer(userId: string): void {
+    this.peers.get(userId)?.close()
+    this.peers.delete(userId)
+    this.remoteStreams.get(userId)?.getTracks().forEach((track) => track.stop())
+    this.remoteStreams.delete(userId)
+    this.emitRemoteStreams()
+  }
+
+  private emitRemoteStreams(): void {
+    this.options.onRemoteStreams([...this.remoteStreams.entries()].map(([userId, stream]) => ({ userId, stream })))
+  }
+
+  private async persistSession(): Promise<void> {
+    try {
+      await requireClient().from('call_sessions').insert({
+        id: this.callId, conversation_id: this.options.conversationId,
+        created_by: this.options.userId, mode: this.options.mode, status: 'active',
+      })
+    } catch { /* журнал не влияет на звонок */ }
+  }
+
+  private finish(status: CallStatus): void {
+    if (this.finished) return
+    this.finished = true
+    this.options.onStatus(status)
+    this.localStream?.getTracks().forEach((track) => track.stop())
+    this.localStream = null
+    for (const id of [...this.peers.keys()]) this.removePeer(id)
+    if (this.channel) void requireClient().removeChannel(this.channel)
+    this.channel = null
+    if (this.options.direction === 'outgoing') {
+      void requireClient().from('call_sessions')
+        .update({ ended_at: new Date().toISOString(), status: 'ended' }).eq('id', this.callId)
+    }
+  }
+}
+
+export const startOutgoingGroupCall = (options: Omit<GroupCallOptions, 'direction'>): GroupCallSession => {
+  const session = new GroupCallSession({ ...options, direction: 'outgoing' })
+  void session.start().catch(() => options.onStatus('failed'))
+  return session
+}
+
+export const acceptIncomingGroupCall = (
+  info: IncomingCallInfo,
+  userId: string,
+  userName: string,
+  handlers: Pick<GroupCallOptions, 'onStatus' | 'onLocalStream' | 'onRemoteStreams'>,
+): GroupCallSession => {
+  const session = new GroupCallSession({
+    userId, userName, conversationId: info.conversationId,
+    memberIds: info.memberIds ?? [userId, info.fromUserId],
+    mode: info.mode, direction: 'incoming', ...handlers,
+  }, info.callId)
+  void session.start().catch(() => handlers.onStatus('failed'))
+  return session
 }
