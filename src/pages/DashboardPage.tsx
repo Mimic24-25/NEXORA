@@ -36,12 +36,14 @@ import { isSupabaseConfigured } from '../lib/supabase'
 import { supabase } from '../lib/supabase'
 import {
   acceptIncomingCall,
+  acceptIncomingGroupCall,
+  startOutgoingGroupCall,
   loadCallHistory,
   rejectIncomingCall,
   startOutgoingCall,
   subscribeIncomingCalls,
 } from '../services/callsService'
-import type { ActiveCallSession, CallMode, CallStatus, IncomingCallInfo } from '../services/callsService'
+import type { ActiveCallSession, GroupCallSession, CallMode, CallStatus, IncomingCallInfo } from '../services/callsService'
 import {
   addContact,
   addReaction,
@@ -237,6 +239,7 @@ export function DashboardPage() {
     peerName: string
     mode: CallMode
     status: CallStatus
+    isGroup?: boolean
   } | null>(null)
   const [incomingCall, setIncomingCall] = useState<IncomingCallInfo | null>(null)
   const [callMuted, setCallMuted] = useState(false)
@@ -244,7 +247,9 @@ export function DashboardPage() {
   const [callAudioBlocked, setCallAudioBlocked] = useState(false)
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [groupRemoteStreams, setGroupRemoteStreams] = useState<Array<{ userId: string; stream: MediaStream }>>([])
   const activeCallRef = useRef<ActiveCallSession | null>(null)
+  const groupCallRef = useRef<GroupCallSession | null>(null)
   const incomingCallRef = useRef<IncomingCallInfo | null>(null)
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -716,7 +721,10 @@ export function DashboardPage() {
 
   const closeCallOverlay = useCallback(() => {
     activeCallRef.current?.destroy()
+    groupCallRef.current?.destroy()
     activeCallRef.current = null
+    groupCallRef.current = null
+    setGroupRemoteStreams([])
     setActiveCallInfo(null)
     setLocalStream(null)
     setRemoteStream(null)
@@ -731,7 +739,7 @@ export function DashboardPage() {
     closeCallOverlayRef.current = closeCallOverlay
   }, [closeCallOverlay])
 
-  useEffect(() => () => activeCallRef.current?.destroy(), [])
+  useEffect(() => () => { activeCallRef.current?.destroy(); groupCallRef.current?.destroy() }, [])
 
   const callHandlers = useMemo(() => ({
     onStatus: (status: CallStatus) => {
@@ -753,7 +761,7 @@ export function DashboardPage() {
     if (!user) return
     const unsubscribe = subscribeIncomingCalls(user.id, {
       onInvite: (info) => {
-        if (activeCallRef.current || incomingCallRef.current) {
+        if (activeCallRef.current || groupCallRef.current || incomingCallRef.current) {
           rejectIncomingCall(info, 'busy')
           return
         }
@@ -832,14 +840,26 @@ export function DashboardPage() {
 
   const handleStartCall = (mode: CallMode) => {
     if (!user || !selectedConversation) return
-    if (selectedConversation.type !== 'direct' || !selectedPeer) {
-      setSendError('Звонки доступны в личных переписках.')
-      return
-    }
-    if (activeCallRef.current) {
+    if (activeCallRef.current || groupCallRef.current) {
       setSendError('Уже идёт разговор.')
       return
     }
+    if (selectedConversation.type === 'group') {
+      const session = startOutgoingGroupCall({
+        userId: user.id,
+        userName: user.name,
+        conversationId: selectedConversation.id,
+        memberIds: selectedConversation.memberIds,
+        mode,
+        onStatus: (status) => setActiveCallInfo((current) => current ? { ...current, status } : current),
+        onLocalStream: setLocalStream,
+        onRemoteStreams: setGroupRemoteStreams,
+      })
+      groupCallRef.current = session
+      setActiveCallInfo({ callId: session.callId, peerName: selectedConversation.title, mode, status: 'ringing', isGroup: true })
+      return
+    }
+    if (!selectedPeer) return
     const session = startOutgoingCall(
       {
         userId: user.id,
@@ -855,10 +875,20 @@ export function DashboardPage() {
   }
 
   const handleAnswerCall = () => {
-    if (!user || !incomingCall || activeCallRef.current) return
+    if (!user || !incomingCall || activeCallRef.current || groupCallRef.current) return
     const info = incomingCall
     incomingCallRef.current = null
     setIncomingCall(null)
+    if (info.groupCall) {
+      const session = acceptIncomingGroupCall(info, user.id, user.name, {
+        onStatus: (status) => setActiveCallInfo((current) => current ? { ...current, status } : current),
+        onLocalStream: setLocalStream,
+        onRemoteStreams: setGroupRemoteStreams,
+      })
+      groupCallRef.current = session
+      setActiveCallInfo({ callId: session.callId, peerName: 'Групповой звонок', mode: info.mode, status: 'connecting', isGroup: true })
+      return
+    }
     const session = acceptIncomingCall(info, user.id, callHandlers)
     beginCall(session)
   }
@@ -871,6 +901,16 @@ export function DashboardPage() {
   }
 
   const handleHangupCall = () => {
+    if (groupCallRef.current) {
+      groupCallRef.current.hangup()
+      groupCallRef.current = null
+      setGroupRemoteStreams([])
+      setActiveCallInfo(null)
+      setLocalStream(null)
+      setCallMuted(false)
+      setCallCameraOn(true)
+      return
+    }
     activeCallRef.current?.hangup()
   }
 
@@ -884,6 +924,7 @@ export function DashboardPage() {
   const handleToggleCamera = () => {
     setCallCameraOn((cameraOn) => {
       activeCallRef.current?.setCameraEnabled(!cameraOn)
+      groupCallRef.current?.setCameraEnabled(!cameraOn)
       return !cameraOn
     })
   }
@@ -1841,8 +1882,8 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
                     </button>
                     <button
                       aria-label="Аудиозвонок"
-                      title={selectedPeer ? 'Аудиозвонок' : 'Звонки доступны в личных переписках'}
-                      disabled={selectedConversation.type !== 'direct' || !selectedPeer}
+                      title={selectedConversation.type === 'group' ? 'Групповой аудиозвонок' : 'Аудиозвонок'}
+                      disabled={selectedConversation.type === 'direct' && !selectedPeer}
                       onClick={() => handleStartCall('audio')}
                       className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 hover:text-cyan-300 disabled:opacity-40 disabled:hover:text-slate-200"
                     >
@@ -1850,8 +1891,8 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
                     </button>
                     <button
                       aria-label="Видеозвонок"
-                      title={selectedPeer ? 'Видеозвонок' : 'Звонки доступны в личных переписках'}
-                      disabled={selectedConversation.type !== 'direct' || !selectedPeer}
+                      title={selectedConversation.type === 'group' ? 'Групповой видеозвонок' : 'Видеозвонок'}
+                      disabled={selectedConversation.type === 'direct' && !selectedPeer}
                       onClick={() => handleStartCall('video')}
                       className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 hover:text-cyan-300 disabled:opacity-40 disabled:hover:text-slate-200"
                     >
@@ -2924,7 +2965,9 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
                 activeCallInfo.status === 'failed' ? 'Ошибка' :
                 activeCallInfo.status === 'missed' ? 'Пропущен' : activeCallInfo.status}
              </div>
-            <audio ref={remoteAudioRef} autoPlay playsInline />
+            {activeCallInfo.isGroup ? groupRemoteStreams.map(({ userId: peerId, stream }) => (
+              <audio key={peerId} autoPlay playsInline ref={(element) => { if (element && element.srcObject !== stream) { element.srcObject = stream; void element.play().catch(() => setCallAudioBlocked(true)) } }} />
+            )) : <audio ref={remoteAudioRef} autoPlay playsInline />}
 
             {callAudioBlocked && activeCallInfo.mode === 'audio' ? (
               <button
@@ -2936,11 +2979,14 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
             ) : null}
 
             {activeCallInfo.mode === 'video' ? (
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <video ref={remoteVideoRef} autoPlay playsInline className="rounded-xl bg-slate-950 object-cover" />
+              <div className="mt-4 grid max-h-[55vh] grid-cols-2 gap-2 overflow-y-auto">
+                {activeCallInfo.isGroup ? groupRemoteStreams.map(({ userId: peerId, stream }) => (
+                  <video key={peerId} autoPlay playsInline className="aspect-video w-full rounded-xl bg-slate-950 object-cover" ref={(element) => { if (element && element.srcObject !== stream) element.srcObject = stream }} />
+                )) : <video ref={remoteVideoRef} autoPlay playsInline className="rounded-xl bg-slate-950 object-cover" />}
                 <video ref={localVideoRef} autoPlay playsInline muted className="rounded-xl bg-slate-950 object-cover" />
               </div>
             ) : null}
+            {activeCallInfo.isGroup ? <div className="mt-3 text-xs text-slate-400">Участников в звонке: {groupRemoteStreams.length + 1}</div> : null}
             <div className="mt-6 flex items-center justify-center gap-3">
               <button
                 onClick={handleToggleMic}
