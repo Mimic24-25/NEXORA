@@ -1,5 +1,5 @@
-import { Shield, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ImagePlus, Shield, ShieldCheck, Trash2, UserPlus, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import {
   addGroupMembers,
   searchProfiles,
@@ -7,11 +7,14 @@ import {
 import {
   loadGroupInfo,
   updateGroupSettings,
+  uploadGroupAvatar,
+  deleteGroupAvatar,
 } from '../services/conversationService'
 import {
   leaveGroup,
   promoteGroupMember,
   removeGroupMember,
+  deleteGroupConversation,
 } from '../services/chatService'
 import type { ChatProfile } from '../services/chatService'
 
@@ -60,6 +63,9 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
   const [editingTitle, setEditingTitle] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDescription, setNewDescription] = useState('')
+  const groupAvatarInputRef = useRef<HTMLInputElement>(null)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [deletingGroup, setDeletingGroup] = useState(false)
 
   useEffect(() => {
     void loadGroupInfo(conversationId)
@@ -133,7 +139,51 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
   }
 
   const handleLeave = () => {
-    void leaveGroup(conversationId).then(() => onLeftGroup?.())
+    void leaveGroup(conversationId).then(() => onLeftGroup?.()).catch((err: unknown) =>
+      setError(err instanceof Error ? err.message : 'Не удалось покинуть группу'))
+  }
+
+  const handleGroupAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setAvatarBusy(true)
+    try {
+      await uploadGroupAvatar(conversationId, file)
+      const info = await loadGroupInfo(conversationId)
+      setGroupInfo(info as unknown as GroupInfo)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить аватар группы')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  const handleDeleteGroupAvatar = async () => {
+    setAvatarBusy(true)
+    try {
+      await deleteGroupAvatar(conversationId)
+      const info = await loadGroupInfo(conversationId)
+      setGroupInfo(info as unknown as GroupInfo)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось удалить аватар группы')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  const handleDeleteGroup = async () => {
+    if (!window.confirm('Удалить группу для всех участников? История и сообщения группы будут удалены без возможности восстановления.')) return
+    setDeletingGroup(true)
+    try {
+      await deleteGroupConversation(conversationId)
+      onLeftGroup?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось удалить группу')
+      setDeletingGroup(false)
+    }
   }
 
   const handleSearchMembers = async () => {
@@ -198,10 +248,10 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
       <div className="flex-1 space-y-6 overflow-y-auto p-4">
         {/* Group avatar + name */}
         <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-cyan-500/20 text-2xl text-cyan-200">
-            {conversation.title.slice(0, 1).toUpperCase()}
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-cyan-500/20 text-2xl text-cyan-200">
+            {conversation.avatarUrl ? <img src={conversation.avatarUrl} alt={conversation.title} className="h-full w-full object-cover" /> : conversation.title.slice(0, 1).toUpperCase()}
           </div>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             {editingTitle && isAdmin ? (
               <div className="flex gap-2">
                 <input
@@ -223,7 +273,16 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
                 ) : null}
               </div>
             )}
-            <div className="text-sm text-slate-400">{members.length} участников</div>
+            <div className="text-sm text-slate-400">{members.length} участников · {onlineMembersCount} в сети</div>
+            {isAdmin ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <input ref={groupAvatarInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(event) => void handleGroupAvatarChange(event)} />
+                <button type="button" disabled={avatarBusy} onClick={() => groupAvatarInputRef.current?.click()} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-cyan-300 disabled:opacity-50">
+                  <ImagePlus size={14} /> {avatarBusy ? 'Подождите…' : 'Загрузить аватар'}
+                </button>
+                {conversation.avatarUrl ? <button type="button" disabled={avatarBusy} onClick={() => void handleDeleteGroupAvatar()} className="rounded-lg border border-red-500/20 px-2 py-1 text-xs text-red-300 disabled:opacity-50">Удалить аватар</button> : null}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -380,7 +439,15 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
           >
             Покинуть группу
           </button>
-        ) : null}
+        ) : (
+          <button
+            onClick={() => void handleDeleteGroup()}
+            disabled={deletingGroup}
+            className="w-full rounded-xl border border-red-500/40 bg-red-500/15 px-4 py-3 text-sm font-semibold text-red-200 hover:bg-red-500/25 disabled:opacity-50"
+          >
+            {deletingGroup ? 'Удаляем группу…' : 'Удалить группу для всех'}
+          </button>
+        )}
       </div>
 
       {/* Add member modal */}
