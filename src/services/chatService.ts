@@ -683,6 +683,7 @@ export interface PhoneContactMatch {
   name: string
   username: string
   avatar_url: string | null
+  matched_phone: string
 }
 
 export const matchPhoneContacts = async (phoneNumbers: string[]): Promise<PhoneContactMatch[]> => {
