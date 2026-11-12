@@ -1530,7 +1530,8 @@ export function DashboardPage() {
     if (!file) return
     setAvatarUploading(true)
     try {
-      await uploadAvatar(file)
+      const avatarUrl = await uploadAvatar(file)
+      await updateProfile({ avatar: avatarUrl })
       setProfileMessage('Аватар обновлён.')
       setProfileError(null)
       void reloadConversations()
@@ -1545,6 +1546,7 @@ export function DashboardPage() {
     setAvatarUploading(true)
     try {
       await deleteAvatar()
+      await updateProfile({ avatar: '' })
       setProfileMessage('Аватар удалён.')
       setProfileError(null)
     } catch (err) {
@@ -2290,6 +2292,7 @@ const toChatMessage = (row: Record<string, unknown>): ChatMessage => ({
                   currentUserId={user.id}
                   onClose={() => setShowGroupPanel(false)}
                   onLeftGroup={() => { setShowGroupPanel(false); void reloadConversations() }}
+                  onGroupUpdated={() => void reloadConversations()}
                 />
               </div>
             ) : showUserPanel ? (
