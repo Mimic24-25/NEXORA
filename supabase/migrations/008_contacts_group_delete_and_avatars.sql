@@ -125,8 +125,8 @@ AS $$
     AND regexp_replace(p.phone, '[^0-9]', '', 'g') <> ''
     AND regexp_replace(p.phone, '[^0-9]', '', 'g') = ANY (
       ARRAY(
-        SELECT regexp_replace(COALESCE(x, ''), '[^0-9]', '', 'g')
-        FROM unnest(COALESCE(p_phone_numbers, ARRAY[]::text[])) AS x
+        SELECT regexp_replace(COALESCE(input.phone_number, ''), '[^0-9]', '', 'g')
+        FROM unnest(COALESCE(p_phone_numbers, ARRAY[]::text[])) AS input(phone_number)
       )
     )
   LIMIT 500;
