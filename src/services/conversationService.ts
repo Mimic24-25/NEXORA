@@ -74,6 +74,7 @@ export const updateGroupSettings = async (
     canWrite?: boolean
     canSendFiles?: boolean
     canSendMedia?: boolean
+    clearAvatar?: boolean
   },
 ): Promise<void> => {
   const client = requireClient()
@@ -85,6 +86,7 @@ export const updateGroupSettings = async (
     p_can_write: options.canWrite,
     p_can_send_files: options.canSendFiles,
     p_can_send_media: options.canSendMedia,
+    p_clear_avatar: options.clearAvatar ?? false,
   })
   if (error) throw error
 }
@@ -98,6 +100,32 @@ export const loadGroupInfo = async (conversationId: string): Promise<Record<stri
   if (error) throw error
   if (!data) throw new Error('Группа не найдена.')
   return data as Record<string, unknown>
+}
+
+ 
+/** Загрузить аватар группы. */
+export const uploadGroupAvatar = async (conversationId: string, file: File): Promise<string> => {
+  const client = requireClient()
+  const { data: { user } } = await client.auth.getUser()
+  if (!user) throw new Error('Требуется авторизация.')
+  if (file.size > 5_000_000) throw new Error('Максимальный размер аватара — 5 МБ.')
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+    throw new Error('Используйте JPG, PNG, WebP или GIF.')
+  }
+  const extension = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png'
+  const path = `${user.id}/group-avatars/${conversationId}_${Date.now()}.${extension}`
+  const bucket = client.storage.from('nexora-media')
+  const { error: uploadError } = await bucket.upload(path, file, { upsert: false, contentType: file.type })
+  if (uploadError) throw uploadError
+  const { data, error } = await bucket.createSignedUrl(path, 604800)
+  if (error || !data?.signedUrl) throw error ?? new Error('Не удалось получить ссылку на аватар.')
+  await updateGroupSettings(conversationId, { avatarUrl: data.signedUrl })
+  return data.signedUrl
+}
+
+/** Полностью убрать аватар группы из карточки группы. */
+export const deleteGroupAvatar = async (conversationId: string): Promise<void> => {
+  await updateGroupSettings(conversationId, { clearAvatar: true })
 }
 
 /** Загрузить профиль другого пользователя. */
@@ -158,10 +186,13 @@ export const deleteAvatar = async (): Promise<void> => {
   const { data: { user } } = await client.auth.getUser()
   if (!user) throw new Error('Требуется авторизация.')
 
-  const { error: _storageError } = await client.storage
-    .from('nexora-media')
-    .remove([`${user.id}/avatar/*`])
-  // Не критично, если storage не настроен
+  const bucket = client.storage.from('nexora-media')
+  const { data: objects, error: listError } = await bucket.list(`${user.id}/avatar`)
+  if (!listError && objects?.length) {
+    const paths = objects.map((item) => `${user.id}/avatar/${item.name}`)
+    const { error: storageError } = await bucket.remove(paths)
+    if (storageError) throw storageError
+  }
 
   const { error: profileError } = await client
     .from('profiles')
