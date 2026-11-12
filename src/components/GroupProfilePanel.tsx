@@ -49,9 +49,10 @@ interface GroupProfilePanelProps {
   currentUserId: string
   onClose: () => void
   onLeftGroup?: () => void
+  onGroupUpdated?: () => void
 }
 
-export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLeftGroup }: GroupProfilePanelProps) {
+export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLeftGroup, onGroupUpdated }: GroupProfilePanelProps) {
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -152,6 +153,7 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
       await uploadGroupAvatar(conversationId, file)
       const info = await loadGroupInfo(conversationId)
       setGroupInfo(info as unknown as GroupInfo)
+      onGroupUpdated?.()
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить аватар группы')
@@ -166,6 +168,7 @@ export function GroupProfilePanel({ conversationId, currentUserId, onClose, onLe
       await deleteGroupAvatar(conversationId)
       const info = await loadGroupInfo(conversationId)
       setGroupInfo(info as unknown as GroupInfo)
+      onGroupUpdated?.()
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось удалить аватар группы')
